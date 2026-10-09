@@ -3,7 +3,9 @@ from urllib.parse import urlparse, parse_qs, quote, urljoin
 from html.parser import HTMLParser
 import json, re, ssl, urllib.request, urllib.error
 
-HOST='127.0.0.1'; PORT=8765
+import os
+HOST = '0.0.0.0'
+PORT = int(os.environ.get('PORT', '8765'))
 UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
 
 SOURCES=[
