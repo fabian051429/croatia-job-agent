@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
    return self.send_json({'query':q,'jobs':search_all(q)})
   if p.path=='/' or p.path=='/index.html':
    try:
-    data=open('/mnt/data/croatia_job_agent/index.html','rb').read(); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
+    data=open('/opt/render/project/src/index.html','rb').read()
    except: self.send_error(404)
    return
   path='/mnt/data/croatia_job_agent'+p.path
