@@ -130,4 +130,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__=='__main__':
  print(f'Agente de Empleo Croacia: http://{HOST}:{PORT}')
- ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
+ ThreadingHTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8765'))), Handler).serve_forever()
