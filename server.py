@@ -30,7 +30,7 @@ class Parser(HTMLParser):
   t=re.sub(r'\\s+',' ',data).strip()
   if t: self.text.append(t)
 
-def fetch(url, timeout=12):
+def fetch(url, timeout=5):
  req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept-Language':'hr-HR,hr;q=0.9,en;q=0.7'})
  ctx=ssl.create_default_context()
  try:
