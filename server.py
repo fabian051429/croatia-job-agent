@@ -119,10 +119,10 @@ class Handler(BaseHTTPRequestHandler):
    return self.send_json({'query':q,'jobs':search_all(q)})
   if p.path=='/' or p.path=='/index.html':
    try:
-   data=open('/opt/render/project/src/index.html','rb').read()
+   data=open('index.html','rb').read()
    except: self.send_error(404)
    return
-  path='/opt/render/project/src'+p.path
+  path='.'+p.path
   try:
    data=open(path,'rb').read(); types={'.css':'text/css','.js':'application/javascript','.json':'application/json','.txt':'text/plain'}; ct=next((v for k,v in types.items() if path.endswith(k)),'application/octet-stream'); self.send_response(200); self.send_header('Content-Type',ct); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
   except: self.send_error(404)
