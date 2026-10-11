@@ -189,6 +189,71 @@ def make_job(source, url, title, body):
         "evidence": body[:1200],
     }
 
+
+def walk_jobposting(obj, found):
+    if isinstance(obj, dict):
+        typ = obj.get("@type", "")
+        types = typ if isinstance(typ, list) else [typ]
+        if any(str(t).lower() == "jobposting" for t in types):
+            found.append(obj)
+        for value in obj.values():
+            walk_jobposting(value, found)
+    elif isinstance(obj, list):
+        for value in obj:
+            walk_jobposting(value, found)
+
+def extract_jobpostings(raw_html):
+    found = []
+    # Read only explicit JSON-LD blocks; don't treat arbitrary page scripts as job data.
+    for block in re.findall(
+        r"""<script[^>]+type=["']application/ld\+json["'][^>]*>(.*?)</script>""",
+        raw_html, flags=re.I | re.S
+    ):
+        try:
+            data = json.loads(html_lib.unescape(block).strip())
+        except Exception:
+            continue
+        walk_jobposting(data, found)
+    return found
+
+def jobposting_to_result(src_name, url, item):
+    title = clean(str(item.get("title") or ""))
+    description = item.get("description") or ""
+    # Convert HTML description to plain text without using the page's global menu text.
+    description = re.sub(r"(?is)<(script|style).*?>.*?</\\1>", " ", str(description))
+    description = re.sub(r"(?i)<br\\s*/?>|</p>|</li>|</div>", " ", description)
+    description = re.sub(r"<[^>]+>", " ", description)
+    body = clean(html_lib.unescape(description))
+    if not title or len(body.split()) < 12:
+        return None
+    company_data = item.get("hiringOrganization") or {}
+    company = company_data.get("name", "Por confirmar") if isinstance(company_data, dict) else "Por confirmar"
+    location = "Croacia (ubicaciÃ³n por verificar)"
+    locations = item.get("jobLocation") or []
+    if isinstance(locations, dict):
+        locations = [locations]
+    if isinstance(locations, list) and locations:
+        loc = locations[0].get("address", {}) if isinstance(locations[0], dict) else {}
+        if isinstance(loc, dict):
+            parts = [loc.get(k) for k in ("addressLocality", "addressRegion", "addressCountry") if loc.get(k)]
+            if parts:
+                location = ", ".join(str(x) for x in parts)
+    free, permit, salary = classify(title, body)
+    return {
+        "source": src_name,
+        "url": url,
+        "title": title[:160],
+        "company": clean(str(company)) or "Por confirmar",
+        "city": location,
+        "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
+        "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
+        "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
+        "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+        "status": "yellow",
+        "note": "Datos extraÃ­dos del bloque estructurado de la oferta. Confirma directamente con el empleador alojamiento y permiso de trabajo.",
+        "evidence": body[:1200],
+    }
+
 def search_source(src, keywords):
     html_text, final_url = fetch(src["url"])
     if not html_text:
@@ -223,6 +288,24 @@ def search_source(src, keywords):
         page, resolved_url = fetch(url, timeout=7)
         if not page:
             continue
+        if resolved_url in result_urls:
+            continue
+
+        # First use JobPosting JSON-LD if this page exposes it.
+        structured = extract_jobpostings(page)
+        if structured:
+            for item in structured:
+                result = jobposting_to_result(src["name"], resolved_url, item)
+                if result:
+                    result_urls.add(resolved_url)
+                    results.append(result)
+                    if len(results) >= 12:
+                        break
+            if len(results) >= 12:
+                break
+            if resolved_url in result_urls:
+                continue
+
         pp = Parser(resolved_url)
         try:
             pp.feed(page)
@@ -232,10 +315,8 @@ def search_source(src, keywords):
         title = clean(" ".join(pp.title)) or link_label
         if not title or not body or not is_specific_job(resolved_url, title, body):
             continue
-        free, permit, _ = classify(title, body)
-        # Show real vacancies even if the conditions aren't explicitly stated;
-        # the UI labels them as unconfirmed rather than claiming they are met.
-        if resolved_url in result_urls:
+        # Reject pages whose text is mostly navigation/menu content.
+        if len(set(norm(body).split())) < 12:
             continue
         result_urls.add(resolved_url)
         results.append(make_job(src["name"], resolved_url, title, body))
