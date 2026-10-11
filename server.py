@@ -1,5 +1,5 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, urljoin, quote_plus
+from urllib.parse import urlparse, parse_qs, urljoin, quote_plus, urlencode
 from html.parser import HTMLParser
 import json, re, ssl, urllib.request, os, html as html_lib
 
@@ -268,11 +268,11 @@ def make_job(source, url, title, body):
         "company": "Por confirmar",
         "city": "Croacia (ubicaciÃ³n por verificar)",
         "salary": ("â¬" + str(min_salary) + "+" if min_salary else "No indicada"),
-        "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": permit_status(title, body[:1200]),
-        "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
+        "accommodation": "Preguntar por correo",
+        "permit": "Preguntar por correo",
+        "foreigner": "Preguntar si aceptan candidatos de Colombia",
         "status": "yellow",
-        "note": "Si contactas al empleador por correo, pregunta por alojamiento proporcionado por la empresa y apoyo con permiso de trabajo/residencia.",
+        "note": "La oferta coincide con un Ã¡rea laboral buscada. Usa el borrador de correo para preguntar por alojamiento y trÃ¡mites.",
         "evidence": body[:1200],
     }
 
@@ -339,7 +339,13 @@ def is_generic_listing_result(url, title, body):
     listing_signals = sum(body_n.count(term) for term in (
         "expires in", "salary disclosed", "search through", "job view", "homepage"
     ))
+    # Some agency landing pages have a role-like heading but contain a catalogue
+    # of many jobs. Reject obvious rollups, while retaining individual vacancy pages.
     if listing_signals >= 3:
+        return True
+    if body_n.count("view details") >= 4 or body_n.count("job opening") >= 4:
+        return True
+    if re.search(r"showing\s+\d+\s+of\s+\d+\s+(open roles|vacancies|jobs)", body_n):
         return True
     return False
 
@@ -375,11 +381,11 @@ def jobposting_to_result(src_name, url, item):
         "company": clean(str(company)) or "Por confirmar",
         "city": location,
         "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
-        "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": permit_status(title, body[:1200]),
-        "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
+        "accommodation": "Preguntar por correo",
+        "permit": "Preguntar por correo",
+        "foreigner": "Preguntar si aceptan candidatos de Colombia",
         "status": "yellow",
-        "note": "Oferta detectada por el Ã¡rea laboral. Pregunta por correo si ofrecen alojamiento y apoyo con permiso de trabajo/residencia.",
+        "note": "La oferta coincide con un Ã¡rea laboral buscada. Usa el borrador de correo para preguntar por alojamiento y trÃ¡mites.",
         "evidence": body[:1200],
     }
 
@@ -477,11 +483,11 @@ def search_source(src, keywords):
             "source": src["name"], "url": resolved_url, "title": title[:160],
             "company": "Por confirmar", "city": "Croacia (ubicaciÃ³n por verificar)",
             "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
-            "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-            "permit": permit_status(title, body[:1200]),
-            "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
+            "accommodation": "Preguntar por correo",
+            "permit": "Preguntar por correo",
+            "foreigner": "Preguntar si aceptan candidatos de Colombia",
             "status": "yellow",
-            "note": "Oferta detectada por el Ã¡rea laboral. Pregunta por correo si ofrecen alojamiento y apoyo con permiso de trabajo/residencia.",
+            "note": "La oferta coincide con un Ã¡rea laboral buscada. Usa el borrador de correo para preguntar por alojamiento y trÃ¡mites.",
             "evidence": body[:1200],
         }
         result_urls.add(resolved_url)
@@ -563,6 +569,126 @@ def relevant_to_query(job, query):
         return True
     return any(has_term(body, term) for term in terms)
 
+def canonical_job_url(url):
+    """Normalize locale-prefixed versions and tracking query strings for deduplication."""
+    p = urlparse(url or "")
+    host = (p.netloc or "").lower().removeprefix("www.")
+    parts = [part for part in p.path.split("/") if part]
+    if parts and parts[0].lower() in {"en", "hr", "de", "it", "fr", "es"}:
+        parts = parts[1:]
+    path = "/" + "/".join(parts)
+    return host + path.rstrip("/").lower()
+
+
+def job_area(job):
+    """Return a broad labour area using the job title first, then its description."""
+    title = norm(job.get("title", ""))
+    evidence = norm(job.get("evidence", ""))
+    rules = [
+        ("AlmacÃ©n y logÃ­stica", ("warehouse", "skladis", "skladist", "logistic", "picker", "packer", "forklift", "vilicar", "komision", "magacin")),
+        ("ConstrucciÃ³n y oficios", ("construction", "carpenter", "tesar", "zidar", "mason", "electrician", "elektricar", "welder", "varilac", "plumber", "vodoinstalater", "concrete", "formwork", "painter")),
+        ("Limpieza y mantenimiento", ("cleaner", "cleaning", "cistac", "housekeeping", "maintenance", "odrzavanje")),
+        ("Hoteles y hostelerÃ­a", ("hotel", "hospitality", "cook", "chef", "kuhar", "kitchen", "waiter", "konobar", "receptionist", "sobar", "dishwasher", "bartender")),
+        ("ConducciÃ³n y reparto", ("driver", "vozac", "delivery", "courier", "truck", "bus driver", "kamion")),
+        ("Agricultura", ("agriculture", "farm worker", "farmer", "harvest", "berba", "poljopriv")),
+        ("ProducciÃ³n y fÃ¡bricas", ("production", "proizvod", "factory", "fabrika", "manufacturing", "operator", "operater", "assembly", "cable production", "bakery production")),
+        ("Comercio y alimentaciÃ³n", ("retail", "cashier", "blagajnik", "shop assistant", "sales assistant", "butcher", "mesar", "bakery", "counter")),
+        ("MecÃ¡nica y vehÃ­culos", ("mechanic", "truck mechanic", "automotive", "vehicle technician")),
+    ]
+    # Prefer title matches so unrelated roles mentioned further down a page do not
+    # change the category of a specific vacancy.
+    for label, terms in rules:
+        if has_any(title, terms):
+            return label
+    for label, terms in rules:
+        if has_any(evidence, terms):
+            return label
+    return "Otros empleos"
+
+
+def email_draft_details(title, company, city, job_url):
+    title = clean(title) or "oglaÅ¡eno radno mjesto"
+    company = clean(company) or "poslodavac"
+    city = clean(city) or "Hrvatska"
+    job_url = clean(job_url)
+    subject = f"Upit za radno mjesto: {title}"
+    body = (
+        "PoÅ¡tovani,\n\n"
+        f"obraÄam vam se povodom oglasa za radno mjesto {title}"
+        f"{(' u mjestu ' + city) if city and city.lower() not in ('croacia (ubicaciÃ³n por verificar)', 'por confirmar') else ' u Hrvatskoj'}.\n\n"
+        "DrÅ¾avljanin sam Kolumbije i molim vas za nekoliko informacija: \n"
+        "1. PrihvaÄate li prijave drÅ¾avljana Kolumbije za ovo radno mjesto?\n"
+        "2. PruÅ¾a li poslodavac smjeÅ¡taj? Ako da, je li besplatan ili se plaÄa i koliki je troÅ¡ak?\n"
+        "3. MoÅ¾ete li pomoÄi u postupku ishoÄenja hrvatske dozvole za rad i reguliranja boravka?\n"
+        "4. Kolika je plaÄa (bruto/neto), radno vrijeme, trajanje ugovora i oÄekivani datum poÄetka rada?\n"
+        "5. Koji su dokumenti potrebni i koji je sluÅ¾beni postupak prijave?\n\n"
+        f"Oglas za posao: {job_url}\n\n"
+        "Hvala vam na vremenu i odgovoru. Å½ivotopis i dodatne informacije mogu dostaviti putem odgovarajuÄeg kanala za prijavu.\n\n"
+        "SrdaÄan pozdrav,\n[VaÅ¡e ime i prezime]"
+    )
+    translation_es = (
+        "Hola,\n\n"
+        f"Me pongo en contacto con ustedes por la oferta para el puesto de {title}"
+        f"{(' en ' + city) if city and city.lower() not in ('croacia (ubicaciÃ³n por verificar)', 'por confirmar') else ' en Croacia'}.\n\n"
+        "Soy ciudadano colombiano y agradecerÃ­a que me confirmaran lo siguiente:\n"
+        "1. Â¿Aceptan solicitudes de ciudadanos colombianos para este puesto?\n"
+        "2. Â¿La empresa proporciona alojamiento? En caso afirmativo, Â¿es gratuito o de pago y cuÃ¡l es su coste?\n"
+        "3. Â¿Pueden ayudar con el trÃ¡mite del permiso de trabajo croata y la regularizaciÃ³n de la residencia?\n"
+        "4. Â¿CuÃ¡l es el salario (bruto/neto), el horario, la duraciÃ³n del contrato y la fecha prevista de inicio?\n"
+        "5. Â¿QuÃ© documentos se necesitan y cuÃ¡l es el procedimiento oficial para postularse?\n\n"
+        f"Oferta de empleo: {job_url}\n\n"
+        "Gracias por su tiempo y respuesta. Puedo enviar mi currÃ­culum y mÃ¡s informaciÃ³n por el canal de solicitud correspondiente.\n\n"
+        "Saludos cordiales,\n[Tu nombre y apellidos]"
+    )
+    mailto = "mailto:?" + urlencode({"subject": subject, "body": body})
+    return {"subject": subject, "body": body, "translation_es": translation_es, "mailto": mailto}
+
+
+def draft_url_for(job):
+    params = {
+        "title": job.get("title", ""),
+        "company": job.get("company", ""),
+        "city": job.get("city", ""),
+        "url": job.get("url", ""),
+    }
+    base = os.environ.get("RENDER_EXTERNAL_URL", "https://croatia-job-agent.onrender.com").rstrip("/")
+    return base + "/api/email-draft?" + urlencode(params)
+
+
+def send_html(handler, markup, code=200):
+    data = markup.encode("utf-8")
+    handler.send_response(code)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    try:
+        handler.wfile.write(data)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+
+
+def email_draft_page(query):
+    title = query.get("title", [""])[0]
+    company = query.get("company", [""])[0]
+    city = query.get("city", [""])[0]
+    url = query.get("url", [""])[0]
+    draft = email_draft_details(title, company, city, url)
+    esc = html_lib.escape
+    parts = [
+        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Borrador de correo</title>",
+        "<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#202124}h1{font-size:1.5rem}p{line-height:1.5}.field{margin:16px 0}label{display:block;font-weight:650;margin-bottom:6px}textarea{box-sizing:border-box;width:100%;padding:12px;font:16px system-ui;border:1px solid #aaa;border-radius:8px}a{display:inline-block;padding:12px 16px;background:#174ea6;color:white;border-radius:8px;text-decoration:none}small{color:#555}</style></head><body>",
+        "<h1>Borrador de correo al empleador</h1><p>Revisa el texto antes de enviarlo. No se ha enviado ningÃºn correo automÃ¡ticamente. Abre tu aplicaciÃ³n de correo para revisar el mensaje y aÃ±ade la direcciÃ³n del empleador.</p>",
+        '<p><a href="' + esc(draft["mailto"], quote=True) + '">Abrir borrador en la aplicaciÃ³n de correo</a></p>',
+        '<div class="field"><label>Asunto (croata; se enviarÃ¡ al empleador)</label><textarea readonly rows="2" onclick="this.select()">' + esc(draft["subject"]) + '</textarea></div>',
+        '<div class="field"><label>Mensaje en croata (este es el texto del correo)</label><textarea readonly rows="20" onclick="this.select()">' + esc(draft["body"]) + '</textarea></div>',
+        '<hr><h2>TraducciÃ³n al espaÃ±ol (solo para ti; no se incluye en el correo)</h2>',
+        '<div class="field"><label>TraducciÃ³n de referencia</label><textarea readonly rows="20" onclick="this.select()">' + esc(draft["translation_es"]) + '</textarea></div>',
+        "<small>Revisa el mensaje antes de enviarlo. No se envÃ­a automÃ¡ticamente. No envÃ­es nÃºmeros de pasaporte ni documentos sensibles hasta verificar al empleador.</small></body></html>"
+    ]
+    return "\n".join(parts)
+
+
 def search_all(query="warehouse logistics production factory cleaning construction hotel hospitality kitchen driver agriculture retail"):
     keywords = query_terms(query)
     jobs = []
@@ -571,27 +697,76 @@ def search_all(query="warehouse logistics production factory cleaning constructi
             jobs.extend(search_source(source, keywords))
         except Exception:
             continue
-    seen, deduped = set(), []
+
+    deduped = []
+    by_url = {}
+    by_role = {}
+    location_terms = ("zagreb", "rijeka", "krapina", "sesvete", "zminj", "pÃ­sarovina", "pisarovina", "split", "osijek", "pula", "zadar", "varazdin", "varazdin", "dubrovnik")
+
+    def location_key(job):
+        city = norm(job.get("city", ""))
+        if city and "ubicacion por verificar" not in city and "location to be verified" not in city and city not in ("croatia", "croacia"):
+            return city.split(",")[0]
+        body = norm(job.get("evidence", ""))
+        found = [term for term in location_terms if re.search(r"(?<![a-z])" + re.escape(norm(term)) + r"(?![a-z])", body)]
+        return found[0] if found else ""
+
+    def quality(job):
+        score = 0
+        if job.get("company") and norm(job.get("company")) not in ("por confirmar", "unknown", "not specified"):
+            score += 3
+        if job.get("city") and "verificar" not in norm(job.get("city")) and "croacia" not in norm(job.get("city")):
+            score += 2
+        if job.get("salary") and norm(job.get("salary")) not in ("no indicada", "not indicated"):
+            score += 1
+        score += min(len(job.get("evidence", "")), 2000) / 2000
+        return score
+
     for job in jobs:
-        key = job["url"]
-        # Final gate applies to structured-data and fallback results alike.
-        # This prevents source landing pages such as "Open Positions in Croatia"
-        # from leaking through one extraction path.
-        if is_generic_listing_result(key, job.get("title", ""), job.get("evidence", "")):
+        url = job.get("url", "")
+        title = job.get("title", "")
+        evidence = job.get("evidence", "")
+        if is_generic_listing_result(url, title, evidence):
             continue
-        if key in seen or not relevant_to_query(job, query):
+        if not is_specific_job(url, title, evidence):
             continue
-        seen.add(key)
+        if not relevant_to_query(job, query):
+            continue
+        canonical = canonical_job_url(url)
+        role_key = (norm(job.get("source", "")), norm(title), location_key(job))
+        duplicate_index = by_url.get(canonical)
+        if duplicate_index is None:
+            # If the source supplies no reliable location, same source + same title
+            # is the best available duplicate signal; unique locations stay separate.
+            duplicate_index = by_role.get(role_key)
+        if duplicate_index is not None:
+            if quality(job) > quality(deduped[duplicate_index]):
+                deduped[duplicate_index] = job
+                # Rebuild indexes for the chosen record.
+                by_url[canonical_job_url(job.get("url", ""))] = duplicate_index
+                by_role[(norm(job.get("source", "")), norm(job.get("title", "")), location_key(job))] = duplicate_index
+            continue
+        index = len(deduped)
         deduped.append(job)
-    # Rank by relevance to the requested work area, not accommodation or permits.
+        by_url[canonical] = index
+        by_role[role_key] = index
+
+    # Order concrete roles ahead of vague descriptions; do not rank by permits or accommodation.
     terms = query_terms(query)
     def rank(job):
         title = norm(job.get("title", ""))
         title_match = any(t in title for t in terms)
-        return (not title_match, norm(job.get("title", "")))
+        area = job_area(job)
+        return (not title_match, area, title)
     deduped.sort(key=rank)
     for job in deduped:
-        job["priority"] = priority_for(job)
+        job["area"] = job_area(job)
+        job["priority"] = "Alta" if job["area"] != "Otros empleos" else "Media"
+        job["accommodation"] = "Preguntar por correo"
+        job["permit"] = "Preguntar por correo"
+        job["foreigner"] = "Preguntar si aceptan candidatos de Colombia"
+        job["note"] = "Oferta detectada por Ã¡rea laboral. El borrador de correo pregunta por alojamiento, permiso de trabajo/residencia y candidatura desde Colombia."
+        job["email_draft_url"] = draft_url_for(job)
     return deduped[:80]
 
 class Handler(BaseHTTPRequestHandler):
@@ -620,6 +795,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/sources":
             return self.send_json({"sources": SOURCES})
+        if parsed.path == "/api/email-draft":
+            markup = email_draft_page(parse_qs(parsed.query))
+            return send_html(self, markup)
         if parsed.path == "/api/search":
             query = parse_qs(parsed.query).get("q", ["warehouse logistics production factory cleaning construction hotel hospitality kitchen driver agriculture retail"])[0]
             return self.send_json({"query": query, "jobs": search_all(query)})
