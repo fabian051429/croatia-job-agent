@@ -48,9 +48,15 @@ class Parser(HTMLParser):
         self.in_title = False
         self.current_link = None
         self.link_text = []
+        self.ignored_depth = 0
 
     def handle_starttag(self, tag, attrs):
         d = dict(attrs)
+        if tag in ("script", "style", "noscript", "svg"):
+            self.ignored_depth += 1
+            return
+        if self.ignored_depth:
+            return
         if tag == "title":
             self.in_title = True
         if tag == "a" and d.get("href"):
@@ -58,6 +64,11 @@ class Parser(HTMLParser):
             self.link_text = []
 
     def handle_endtag(self, tag):
+        if tag in ("script", "style", "noscript", "svg") and self.ignored_depth:
+            self.ignored_depth -= 1
+            return
+        if self.ignored_depth:
+            return
         if tag == "title":
             self.in_title = False
         if tag == "a" and self.current_link:
@@ -66,6 +77,8 @@ class Parser(HTMLParser):
             self.current_link, self.link_text = None, []
 
     def handle_data(self, data):
+        if self.ignored_depth:
+            return
         t = clean(data)
         if not t:
             return
@@ -142,6 +155,10 @@ def is_specific_job(url, title, body):
     title_n = norm(title)
     body_n = norm(body)
     if not path or title_n in {norm(x) for x in GENERIC_TITLES}:
+        return False
+    # Reject technology, registration, login and platform marketing pages.
+    if any(term in norm(url + " " + title_n) for term in
+           ("registracija", "prijava", "napredne ai", "tehnologije", "o nama", "kontakt", "privacy", "cookie")):
         return False
     if is_listing_url(url):
         parts = [p for p in path.split("/") if p]
