@@ -276,6 +276,34 @@ def jobposting_to_result(src_name, url, item):
         "evidence": body[:1200],
     }
 
+def is_generic_listing_result(url, title, body):
+    title_n = norm(title)
+    body_n = norm(body)
+    url_n = url.lower()
+
+    generic_phrases = (
+        "search through", "find your ideal job",
+        "for jobseekers", "search results",
+        "browse jobs", "active ads to find",
+        "job search", "results for"
+    )
+
+    if any(phrase in title_n for phrase in generic_phrases):
+        return True
+
+    if "posao.hr" in url_n:
+        path = urlparse(url).path.lower().rstrip("/")
+        if path in ("", "/", "/zanimanja/radnik",
+                    "/zanimanja/skladistar"):
+            return True
+
+    listing_signals = sum(
+        body_n.count(term)
+        for term in ("expires in", "salary disclosed",
+                     "search through", "job view")
+    )
+    return listing_signals >= 3
+
 def search_source(src, keywords):
     html_text, final_url = fetch(src["url"])
     if not html_text:
@@ -342,6 +370,8 @@ def search_source(src, keywords):
             # slice of visible text and require a job-like title before accepting.
             body = clean(" ".join(page_parser.text[:100]))
         if not title or not body or len(body.split()) < 12:
+            continue
+        if is_generic_listing_result(resolved_url, title, body):
             continue
         if not has_any(title, JOB_TERMS):
             continue
