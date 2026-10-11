@@ -317,6 +317,20 @@ def search_source(src, keywords):
 
     domain = urlparse(final_url).netloc.lower()
     candidates, seen = [], set()
+    # Gettalent's career cards can be rendered in a way that does not expose
+    # every card link consistently to a simple HTML parser. Seed known individual
+    # vacancy pages, then still discover any additional links from the page.
+    if "get-talent.hr" in domain:
+        for path, label in (
+            ("/career/warehouse-operative", "Warehouse Operative"),
+            ("/career/cable-production-operator", "Cable Production Operator"),
+            ("/career/production-line-employee", "Production Line Employee"),
+            ("/career/concrete-formwork-worker", "Concrete & Formwork Worker"),
+        ):
+            u = urljoin(final_url, path)
+            candidates.append((u, label))
+            seen.add(u)
+
     # Include links to individual job pages and links with job-like labels.
     for href, label in parser.links:
         u = href.split("#")[0]
