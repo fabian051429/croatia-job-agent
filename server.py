@@ -142,9 +142,10 @@ PERMIT_TERMS = [
     "radna dozvola", "dozvola za rad"
 ]
 JOB_TERMS = [
-    "posao", "radnik", "radnica", "skladist", "konobar", "kuhar",
-    "kuharica", "cistac", "worker", "waiter", "cook", "warehouse",
-    "cleaner", "job", "zaposlj", "vozac", "prodavac", "hotel", "sobar"
+    "posao", "radnik", "radnica", "djelatnik", "skladis", "skladist",
+    "operater", "konobar", "kuhar", "kuharica", "cistac", "worker",
+    "waiter", "cook", "warehouse", "cleaner", "job", "zaposlj",
+    "vozac", "prodavac", "hotel", "sobar"
 ]
 
 def has_any(text, terms):
@@ -414,9 +415,9 @@ def search_source(src, keywords):
 
 # Search aliases and stems keep Croatian queries useful despite grammatical endings.
 QUERY_ALIASES = {
-    "skladiste": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "skladistar": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "warehouse": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "skladiste": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "skladistar": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "warehouse": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
     "smjestaj": ["smjest", "accommodation", "housing", "stanovanje"],
     "dozvola": ["dozvol", "radna dozvol", "work permit", "sponsorship"],
     "vozac": ["vozac", "vozil", "driver", "dostav", "kamion"],
