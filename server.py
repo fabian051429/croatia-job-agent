@@ -49,14 +49,24 @@ class Parser(HTMLParser):
         self.current_link = None
         self.link_text = []
         self.ignored_depth = 0
+        self.scope_depth = 0
+        self.scoped_text = []
+        self.headings = []
+        self.heading_depth = 0
+        self.current_heading = []
 
     def handle_starttag(self, tag, attrs):
         d = dict(attrs)
-        if tag in ("script", "style", "noscript", "svg"):
+        if tag in ("script", "style", "noscript", "svg", "nav", "footer", "header", "aside"):
             self.ignored_depth += 1
             return
         if self.ignored_depth:
             return
+        if tag in ("main", "article"):
+            self.scope_depth += 1
+        if tag in ("h1", "h2"):
+            self.heading_depth += 1
+            self.current_heading = []
         if tag == "title":
             self.in_title = True
         if tag == "a" and d.get("href"):
@@ -64,11 +74,19 @@ class Parser(HTMLParser):
             self.link_text = []
 
     def handle_endtag(self, tag):
-        if tag in ("script", "style", "noscript", "svg") and self.ignored_depth:
+        if tag in ("script", "style", "noscript", "svg", "nav", "footer", "header", "aside") and self.ignored_depth:
             self.ignored_depth -= 1
             return
         if self.ignored_depth:
             return
+        if tag in ("main", "article") and self.scope_depth:
+            self.scope_depth -= 1
+        if tag in ("h1", "h2") and self.heading_depth:
+            heading = clean(" ".join(self.current_heading))
+            if heading:
+                self.headings.append(heading)
+            self.heading_depth -= 1
+            self.current_heading = []
         if tag == "title":
             self.in_title = False
         if tag == "a" and self.current_link:
@@ -83,8 +101,12 @@ class Parser(HTMLParser):
         if not t:
             return
         self.text.append(t)
+        if self.scope_depth:
+            self.scoped_text.append(t)
         if self.in_title:
             self.title.append(t)
+        if self.heading_depth:
+            self.current_heading.append(t)
         if self.current_link:
             self.link_text.append(t)
 
@@ -292,6 +314,11 @@ def search_source(src, keywords):
             continue
 
         # First use JobPosting JSON-LD if this page exposes it.
+        page_parser = Parser(resolved_url)
+        try:
+            page_parser.feed(page)
+        except Exception:
+            continue
         structured = extract_jobpostings(page)
         if structured:
             for item in structured:
@@ -306,10 +333,38 @@ def search_source(src, keywords):
             if resolved_url in result_urls:
                 continue
 
-        # Do not fall back to the whole page text: on portals such as PickJobs
-        # it includes navigation, news and footer links. If there is no explicit
-        # JobPosting block, skip this URL instead of returning misleading data.
-        continue
+        # Fallback for job pages without JSON-LD: extract the page title and
+        # main/article text only, never the site's full navigation/footer text.
+        title = (page_parser.headings[0] if page_parser.headings else "") or clean(" ".join(page_parser.title)) or clean(link_label)
+        body = clean(" ".join(page_parser.scoped_text))
+        if not body:
+            # Some sites do not use main/article. Use only a short, conservative
+            # slice of visible text and require a job-like title before accepting.
+            body = clean(" ".join(page_parser.text[:100]))
+        if not title or not body or len(body.split()) < 12:
+            continue
+        if not has_any(title, JOB_TERMS):
+            continue
+        if not relevant_to_query({"title": title, "evidence": body}, " ".join(keywords)):
+            continue
+        free, permit, salary = classify(title, body)
+        # Prefer the city/company only when it is explicitly available in text;
+        # do not guess either field from unrelated sitewide content.
+        result = {
+            "source": src["name"], "url": resolved_url, "title": title[:160],
+            "company": "Por confirmar", "city": "Croacia (ubicaciÃ³n por verificar)",
+            "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
+            "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
+            "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
+            "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+            "status": "yellow",
+            "note": "DescripciÃ³n extraÃ­da del contenido principal de la oferta. Confirma alojamiento y permiso con el empleador.",
+            "evidence": body[:1200],
+        }
+        result_urls.add(resolved_url)
+        results.append(result)
+        if len(results) >= 12:
+            break
     return results
 
 # Search aliases and stems keep Croatian queries useful despite grammatical endings.
