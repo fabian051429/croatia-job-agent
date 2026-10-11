@@ -167,6 +167,39 @@ def classify(title, body):
                     pass
     return free, permit, min(nums) if nums else None
 
+# Strong signals mean the ad says the employer handles/sponsors the process,
+# not merely that a passport or visa is needed. This still does not prove
+# eligibility for any particular nationality.
+PERMIT_HANDLING_TERMS = [
+    "poslodavac ishoduje dozvolu", "poslodavac osigurava dozvolu",
+    "pomoc pri ishodjenju dozvole", "pomoc oko radne dozvole",
+    "pomazemo pri ishodjenju radne dozvole", "sponzoriramo radnu dozvolu",
+    "sponzorstvo radne dozvole", "work permit sponsorship", "visa sponsorship",
+    "we sponsor work permits", "assistance with work permit", "help with work permit",
+    "full visa and work-permit processing handled for you",
+    "work-permit processing handled for you", "we handle all legal paperwork",
+    "we prepare your employment contract, work permit", "work permit processing handled",
+]
+
+def permit_status(title, body):
+    combined = norm(title + " " + body)
+    if has_any(combined, PERMIT_HANDLING_TERMS):
+        return "El anuncio indica que gestiona visa/permiso; confirmar elegibilidad para ciudadanos colombianos"
+    if has_any(combined, PERMIT_TERMS):
+        return "Visa/permiso mencionado, pero no confirma quien lo tramita"
+    return "No confirmado en el anuncio"
+
+def priority_for(job):
+    accommodation = norm(job.get("accommodation", ""))
+    permit = norm(job.get("permit", ""))
+    free_confirmed = "gratis indicado" in accommodation or "besplatan" in accommodation
+    employer_process = "indica que gestiona visa/permiso" in permit
+    if free_confirmed and employer_process:
+        return "Alta"
+    if free_confirmed or employer_process:
+        return "Media"
+    return "Por verificar"
+
 def is_listing_url(url):
     path = urlparse(url).path.lower().rstrip("/")
     return any(hint in path for hint in LISTING_PATH_HINTS)
@@ -204,7 +237,7 @@ def make_job(source, url, title, body):
         "city": "Croacia (ubicaciÃ³n por verificar)",
         "salary": ("â¬" + str(min_salary) + "+" if min_salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+        "permit": permit_status(title, body),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
         "note": "Verifica directamente con el empleador que el alojamiento sea gratuito y que pueda gestionar el permiso de trabajo para tu caso.",
@@ -299,7 +332,7 @@ def jobposting_to_result(src_name, url, item):
         "city": location,
         "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+        "permit": permit_status(title, body),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
         "note": "Datos extraÃ­dos del anuncio. La menciÃ³n de visa/permiso no garantiza elegibilidad para ciudadanos colombianos; confirma con el empleador.",
@@ -401,7 +434,7 @@ def search_source(src, keywords):
             "company": "Por confirmar", "city": "Croacia (ubicaciÃ³n por verificar)",
             "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
             "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-            "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+            "permit": permit_status(title, body),
             "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
             "status": "yellow",
             "note": "Datos extraÃ­dos del anuncio. Confirma con el empleador si el alojamiento es gratuito y si tramita permiso para ciudadanos colombianos.",
@@ -473,29 +506,18 @@ def search_all(query="skladistar radnik smjestaj dozvola"):
             continue
         seen.add(key)
         deduped.append(job)
-    # Rank the most useful offers first without hiding unconfirmed opportunities.
-    # Explicit free accommodation and work-permit support receive highest priority.
+    # Rank explicit combined evidence first. Generic mentions such as "valid passport
+    # for visa processing" do not count as employer permit handling.
     terms = query_terms(query)
     def rank(job):
         title = norm(job.get("title", ""))
         title_match = any(t in title for t in terms)
-        accommodation = norm(job.get("accommodation", ""))
-        permit = norm(job.get("permit", ""))
-        free_confirmed = "gratis indicado" in accommodation or "besplatan" in accommodation
-        permit_confirmed = any(x in permit for x in ("tramiti dozvolu", "sponsorship confirmed", "confirmed work permit"))
-        # A visa/permit mention is useful but is not proof of eligibility for Colombians.
-        permit_mentioned = "mencionado" in permit or "visa" in permit or "permit" in permit
-        return (not (free_confirmed and permit_confirmed), not free_confirmed,
-                not permit_confirmed, not permit_mentioned, not title_match)
+        priority = priority_for(job)
+        priority_rank = {"Alta": 0, "Media": 1, "Por verificar": 2}.get(priority, 2)
+        return (priority_rank, not title_match)
     deduped.sort(key=rank)
     for job in deduped:
-        accommodation = norm(job.get("accommodation", ""))
-        permit = norm(job.get("permit", ""))
-        job["priority"] = ("Alta" if ("gratis indicado" in accommodation and
-                           ("mencionado" in permit or "visa" in permit or "permit" in permit))
-                           else "Media" if ("gratis indicado" in accommodation or
-                                             "mencionado" in permit or "visa" in permit or "permit" in permit)
-                           else "Por verificar")
+        job["priority"] = priority_for(job)
     return deduped[:80]
 
 class Handler(BaseHTTPRequestHandler):
