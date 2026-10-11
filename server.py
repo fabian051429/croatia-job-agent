@@ -197,15 +197,15 @@ def permit_status(title, body):
     return "No confirmado en el anuncio"
 
 def priority_for(job):
+    # Priority depends ONLY on free accommodation provided by the employer.
+    # Work-permit/residence information is not used to rank or exclude jobs.
     accommodation = norm(job.get("accommodation", ""))
-    permit = norm(job.get("permit", ""))
-    free_confirmed = "gratis indicado" in accommodation or "besplatan" in accommodation
-    employer_process = "indica que gestiona visa/permiso" in permit
-    if free_confirmed and employer_process:
-        return "Alta"
-    if free_confirmed or employer_process:
-        return "Media"
-    return "Por verificar"
+    free_confirmed = any(term in accommodation for term in (
+        "gratis indicado", "alojamiento gratuito", "alojamiento gratis",
+        "free accommodation", "free housing", "besplatan smjestaj",
+        "osiguran smjestaj", "smjestaj osiguran"
+    ))
+    return "Alta" if free_confirmed else "Por verificar"
 
 def is_listing_url(url):
     path = urlparse(url).path.lower().rstrip("/")
