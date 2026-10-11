@@ -306,22 +306,10 @@ def search_source(src, keywords):
             if resolved_url in result_urls:
                 continue
 
-        pp = Parser(resolved_url)
-        try:
-            pp.feed(page)
-        except Exception:
-            continue
-        body = clean(" ".join(pp.text))
-        title = clean(" ".join(pp.title)) or link_label
-        if not title or not body or not is_specific_job(resolved_url, title, body):
-            continue
-        # Reject pages whose text is mostly navigation/menu content.
-        if len(set(norm(body).split())) < 12:
-            continue
-        result_urls.add(resolved_url)
-        results.append(make_job(src["name"], resolved_url, title, body))
-        if len(results) >= 12:
-            break
+        # Do not fall back to the whole page text: on portals such as PickJobs
+        # it includes navigation, news and footer links. If there is no explicit
+        # JobPosting block, skip this URL instead of returning misleading data.
+        continue
     return results
 
 def search_all(query="skladistar radnik smjestaj dozvola"):
