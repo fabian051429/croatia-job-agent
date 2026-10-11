@@ -197,15 +197,15 @@ def permit_status(title, body):
     return "No confirmado en el anuncio"
 
 def priority_for(job):
-    # Priority depends ONLY on free accommodation provided by the employer.
-    # Work-permit/residence information is not used to rank or exclude jobs.
-    accommodation = norm(job.get("accommodation", ""))
-    free_confirmed = any(term in accommodation for term in (
-        "gratis indicado", "alojamiento gratuito", "alojamiento gratis",
-        "free accommodation", "free housing", "besplatan smjestaj",
-        "osiguran smjestaj", "smjestaj osiguran"
-    ))
-    return "Alta" if free_confirmed else "Por verificar"
+    # Ranking is based on the work area/role only, never on accommodation,
+    # work permit, or residence information. Those questions belong in outreach.
+    title = norm(job.get("title", ""))
+    evidence = norm(job.get("evidence", ""))
+    role_terms = ["warehouse", "skladis", "skladist", "logistic", "komision",
+                  "picker", "pakir", "vilicar", "driver", "vozac", "cleaner",
+                  "cistac", "cook", "kuhar", "waiter", "konobar", "production",
+                  "proizvod", "worker", "radnik", "djelatnik", "hotel", "sobar"]
+    return "Alta" if any(term in title for term in role_terms) else "Media"
 
 def is_listing_url(url):
     path = urlparse(url).path.lower().rstrip("/")
@@ -247,7 +247,7 @@ def make_job(source, url, title, body):
         "permit": permit_status(title, body[:1200]),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
-        "note": "Verifica directamente con el empleador que el alojamiento sea gratuito y que pueda gestionar el permiso de trabajo para tu caso.",
+        "note": "Si contactas al empleador por correo, pregunta por alojamiento proporcionado por la empresa y apoyo con permiso de trabajo/residencia.",
         "evidence": body[:1200],
     }
 
@@ -354,7 +354,7 @@ def jobposting_to_result(src_name, url, item):
         "permit": permit_status(title, body[:1200]),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
-        "note": "Datos extraÃ­dos del anuncio. La menciÃ³n de visa/permiso no garantiza elegibilidad para ciudadanos colombianos; confirma con el empleador.",
+        "note": "Oferta detectada por el Ã¡rea laboral. Pregunta por correo si ofrecen alojamiento y apoyo con permiso de trabajo/residencia.",
         "evidence": body[:1200],
     }
 
@@ -456,7 +456,7 @@ def search_source(src, keywords):
             "permit": permit_status(title, body[:1200]),
             "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
             "status": "yellow",
-            "note": "Datos extraÃ­dos del anuncio. Confirma con el empleador si el alojamiento es gratuito y si tramita permiso para ciudadanos colombianos.",
+            "note": "Oferta detectada por el Ã¡rea laboral. Pregunta por correo si ofrecen alojamiento y apoyo con permiso de trabajo/residencia.",
             "evidence": body[:1200],
         }
         result_urls.add(resolved_url)
@@ -510,7 +510,7 @@ def relevant_to_query(job, query):
         return True
     return any(has_term(body, term) for term in terms)
 
-def search_all(query="skladistar radnik smjestaj dozvola"):
+def search_all(query="skladistar warehouse logistics radnik"):
     keywords = query_terms(query)
     jobs = []
     for source in SOURCES:
@@ -530,15 +530,12 @@ def search_all(query="skladistar radnik smjestaj dozvola"):
             continue
         seen.add(key)
         deduped.append(job)
-    # Rank explicit combined evidence first. Generic mentions such as "valid passport
-    # for visa processing" do not count as employer permit handling.
+    # Rank by relevance to the requested work area, not accommodation or permits.
     terms = query_terms(query)
     def rank(job):
         title = norm(job.get("title", ""))
         title_match = any(t in title for t in terms)
-        priority = priority_for(job)
-        priority_rank = {"Alta": 0, "Media": 1, "Por verificar": 2}.get(priority, 2)
-        return (priority_rank, not title_match)
+        return (not title_match, norm(job.get("title", "")))
     deduped.sort(key=rank)
     for job in deduped:
         job["priority"] = priority_for(job)
