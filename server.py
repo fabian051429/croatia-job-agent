@@ -145,10 +145,29 @@ PERMIT_TERMS = [
     "visa processing", "visa process", "radna dozvola", "dozvola za rad"
 ]
 JOB_TERMS = [
-    "posao", "radnik", "radnica", "djelatnik", "skladis", "skladist",
-    "operater", "konobar", "kuhar", "kuharica", "cistac", "worker",
-    "waiter", "cook", "warehouse", "cleaner", "job", "zaposlj",
-    "vozac", "prodavac", "hotel", "sobar"
+    # Warehouse, logistics and packing
+    "skladis", "skladist", "skladistar", "warehouse", "logistics", "logistic",
+    "komision", "picker", "packer", "packing", "pakir", "vilicar", "forklift",
+    "magacin", "stock worker", "inventory",
+    # Production, manufacturing and factory work
+    "production", "proizvod", "factory", "fabrika", "manufacturing", "operator",
+    "operater", "production line", "assembly", "montaza", "machine operator",
+    "quality control", "pakiranje", "radnik u proizvodnji",
+    # Cleaning, housekeeping and hospitality
+    "cleaner", "cleaning", "cistac", "ciscenje", "housekeeping", "sobar", "sobarica",
+    "hotel", "hospitality", "receptionist", "recepcionar", "kitchen porter",
+    "dishwasher", "perac posuda", "kuhinj", "cook", "chef", "kuhar", "kuharica",
+    "waiter", "waitress", "konobar", "konobarica", "bartender", "barmen",
+    # Construction and trades
+    "construction", "gradjev", "graÄev", "zidar", "mason", "tesar", "carpenter",
+    "painter", "soboslikar", "plumber", "vodoinstalater", "electrician", "elektricar",
+    "welder", "varilac", "installer", "montazer", "laborer", "helper",
+    # Driving, delivery, agriculture, retail and food production
+    "driver", "vozac", "delivery", "dostav", "truck", "kamion", "courier",
+    "agriculture", "poljopriv", "farm worker", "farmer", "harvest", "berba",
+    "retail", "cashier", "blagajnik", "prodavac", "trgovac", "butcher", "mesar",
+    "food production", "radnik", "radnica", "djelatnik", "djelatnica", "worker",
+    "zaposlj", "job"
 ]
 
 def has_any(text, terms):
@@ -201,10 +220,16 @@ def priority_for(job):
     # work permit, or residence information. Those questions belong in outreach.
     title = norm(job.get("title", ""))
     evidence = norm(job.get("evidence", ""))
-    role_terms = ["warehouse", "skladis", "skladist", "logistic", "komision",
-                  "picker", "pakir", "vilicar", "driver", "vozac", "cleaner",
-                  "cistac", "cook", "kuhar", "waiter", "konobar", "production",
-                  "proizvod", "worker", "radnik", "djelatnik", "hotel", "sobar"]
+    role_terms = [
+        "warehouse", "skladis", "skladist", "logistic", "komision", "picker", "packer",
+        "pakir", "vilicar", "forklift", "driver", "vozac", "delivery", "cleaner", "cleaning",
+        "cistac", "ciscenje", "housekeeping", "sobar", "cook", "kuhar", "kitchen", "chef",
+        "waiter", "konobar", "bartender", "production", "proizvod", "factory", "fabrika",
+        "operator", "operater", "construction", "gradjev", "zidar", "tesar", "carpenter",
+        "painter", "plumber", "electrician", "welder", "agriculture", "farm", "harvest",
+        "retail", "cashier", "prodavac", "trgovac", "butcher", "mesar", "hotel", "worker",
+        "radnik", "radnica", "djelatnik", "djelatnica", "reception", "dishwasher"
+    ]
     return "Alta" if any(term in title for term in role_terms) else "Media"
 
 def is_listing_url(url):
@@ -467,15 +492,43 @@ def search_source(src, keywords):
 
 # Search aliases and stems keep Croatian queries useful despite grammatical endings.
 QUERY_ALIASES = {
-    "skladiste": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "skladistar": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "warehouse": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    # Warehouse and logistics
+    "skladiste": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir", "packer"],
+    "skladistar": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir", "packer"],
+    "warehouse": ["skladis", "skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir", "packer"],
+    "logistics": ["logistic", "logistik", "warehouse", "skladis", "skladist", "delivery", "dostav", "forklift", "picker", "packer"],
+    "logistic": ["logistics", "logistik", "warehouse", "skladis", "skladist", "delivery", "dostav"],
+    # Production and factory
+    "production": ["production", "proizvod", "factory", "fabrika", "manufacturing", "operator", "operater", "assembly", "montaza"],
+    "factory": ["factory", "fabrika", "production", "proizvod", "manufacturing", "operator", "operater"],
+    "proizvodnja": ["proizvod", "production", "factory", "fabrika", "manufacturing", "operator", "operater"],
+    "operator": ["operator", "operater", "production", "proizvod", "factory", "fabrika"],
+    # Cleaning, hotel and hospitality
+    "cleaning": ["cleaning", "cleaner", "cist", "housekeeping", "sobar", "higijen"],
+    "cleaner": ["cleaner", "cleaning", "cist", "housekeeping", "sobar", "higijen"],
+    "cistac": ["cist", "cleaner", "cleaning", "housekeeping", "sobar", "higijen"],
+    "hotel": ["hotel", "hospitality", "sobar", "housekeeping", "reception", "kuhar", "chef", "cook", "konobar", "waiter", "cleaner"],
+    "hospitality": ["hotel", "hospitality", "sobar", "housekeeping", "reception", "kuhar", "chef", "cook", "konobar", "waiter", "cleaner"],
+    "housekeeping": ["housekeeping", "sobar", "sobarica", "cleaner", "cleaning", "cist"],
+    "kitchen": ["kitchen", "kuhinj", "cook", "chef", "kuhar", "dishwasher", "konobar"],
+    "cook": ["cook", "chef", "kuhar", "kuharica", "kitchen", "kuhinj"],
+    "chef": ["chef", "cook", "kuhar", "kuharica", "kitchen", "kuhinj"],
+    "waiter": ["waiter", "waitress", "konobar", "konobarica", "servir", "hospitality"],
+    "konobar": ["konobar", "waiter", "waitress", "servir", "hospitality"],
+    # Construction and trades
+    "construction": ["construction", "gradjev", "zidar", "mason", "tesar", "carpenter", "painter", "plumber", "electrician", "welder", "laborer"],
+    "gradjevina": ["gradjev", "construction", "zidar", "mason", "tesar", "carpenter", "painter", "plumber", "electrician", "welder"],
+    "electrician": ["electrician", "elektricar", "electrical", "maintenance"],
+    "welder": ["welder", "varilac", "welding", "metal worker"],
+    # Driving, agriculture, retail and food production
+    "driver": ["vozac", "vozil", "driver", "dostav", "delivery", "kamion", "truck", "courier"],
+    "vozac": ["vozac", "vozil", "driver", "dostav", "delivery", "kamion", "truck"],
+    "agriculture": ["agriculture", "poljopriv", "farm", "farmer", "harvest", "berba", "seasonal worker"],
+    "farm": ["farm", "farmer", "agriculture", "poljopriv", "harvest", "berba"],
+    "retail": ["retail", "cashier", "blagajnik", "prodavac", "trgovac", "shop assistant"],
+    "cashier": ["cashier", "blagajnik", "retail", "prodavac", "trgovac"],
     "smjestaj": ["smjest", "accommodation", "housing", "stanovanje"],
     "dozvola": ["dozvol", "radna dozvol", "work permit", "sponsorship"],
-    "vozac": ["vozac", "vozil", "driver", "dostav", "kamion"],
-    "cistac": ["cist", "cleaner", "housekeeping"],
-    "konobar": ["konobar", "waiter", "servir"],
-    "kuhar": ["kuhar", "cook", "chef", "kuhinj"],
 }
 
 def query_terms(query):
@@ -510,7 +563,7 @@ def relevant_to_query(job, query):
         return True
     return any(has_term(body, term) for term in terms)
 
-def search_all(query="skladistar warehouse logistics radnik"):
+def search_all(query="warehouse logistics production factory cleaning construction hotel hospitality kitchen driver agriculture retail"):
     keywords = query_terms(query)
     jobs = []
     for source in SOURCES:
@@ -568,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/sources":
             return self.send_json({"sources": SOURCES})
         if parsed.path == "/api/search":
-            query = parse_qs(parsed.query).get("q", ["skladistar radnik smjestaj dozvola"])[0]
+            query = parse_qs(parsed.query).get("q", ["warehouse logistics production factory cleaning construction hotel hospitality kitchen driver agriculture retail"])[0]
             return self.send_json({"query": query, "jobs": search_all(query)})
         if parsed.path in ("/", "/index.html"):
             try:
