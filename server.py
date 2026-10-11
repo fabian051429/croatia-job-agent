@@ -23,7 +23,9 @@ LISTING_PATH_HINTS = ("/category/", "/kategorija/", "/poslovi", "/oglasi-za-posa
 GENERIC_TITLES = {
     "poslovi", "posao", "jobs", "job search", "traÅ¾ilica poslova",
     "rezultati pretrage", "poÄetna", "home", "career", "karijera",
-    "oglasi za posao", "pronaÄi posao", "pronadi posao"
+    "oglasi za posao", "pronaÄi posao", "pronadi posao",
+    "open positions in croatia", "open positions", "live vacancies",
+    "all open positions", "all open roles", "career opportunities", "all jobs"
 }
 
 # Text matching is accent-insensitive so Croatian diacritics/encoding variants
@@ -274,23 +276,35 @@ def extract_jobpostings(raw_html):
 def is_generic_listing_result(url, title, body):
     """Reject search/category pages masquerading as individual job ads."""
     title_n = norm(title)
-    url_n = norm(url)
     body_n = norm(body)
-    generic_phrases = (
-        "search through", "find your ideal job", "for jobseekers",
-        "job seekers", "search results", "results for", "browse jobs",
-        "all jobs", "active ads to find", "homepage", "job search",
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path.lower().rstrip("/") or "/"
+
+    # Exact generic titles commonly returned by recruitment landing pages.
+    generic_titles = {norm(x) for x in GENERIC_TITLES}
+    if title_n in generic_titles:
+        return True
+    generic_title_phrases = (
+        "open positions in croatia", "live vacancies", "all open positions",
+        "all open roles", "browse all jobs", "find your ideal job",
+        "search through", "search results", "results for", "job search",
         "traÅ¾ilica poslova", "rezultati pretrage", "oglasi za posao",
     )
-    if any(norm(phrase) in title_n for phrase in generic_phrases):
+    if any(norm(phrase) in title_n for phrase in generic_title_phrases):
         return True
-    # Known listing/category paths that often return many ads, not one vacancy.
-    path = urlparse(url).path.lower().rstrip("/")
-    if "posao.hr" in urlparse(url).netloc.lower():
+
+    # Reject source landing pages, but allow individual vacancies below them.
+    if "humble-hunters.hr" in host and path in ("/", "/en/jobs", "/jobs"):
+        return True
+    if "get-talent.hr" in host and path in ("/", "/career", "/hr/career", "/en/career"):
+        return True
+    if "posao.hr" in host:
         if path in ("/", "/zanimanja/radnik", "/zanimanja/skladistar", "/zanima/radnik"):
             return True
         if title_n.startswith("for jobseekers") or "search through" in title_n:
             return True
+
     # Listing pages often contain many separate vacancy snippets in one body.
     listing_signals = sum(body_n.count(term) for term in (
         "expires in", "salary disclosed", "search through", "job view", "homepage"
