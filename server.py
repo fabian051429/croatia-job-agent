@@ -118,7 +118,7 @@ PERMIT_TERMS = [
     "pomazemo pri ishodjenju radne dozvole", "sponzoriramo radnu dozvolu",
     "sponzorstvo radne dozvole", "work permit sponsorship",
     "visa sponsorship", "we sponsor work permits", "assistance with work permit",
-    "help with work permit", "dozvola za boravak i rad"
+    "help with work permit"
 ]
 JOB_TERMS = [
     "posao", "radnik", "radnica", "skladist", "konobar", "kuhar",
@@ -312,8 +312,44 @@ def search_source(src, keywords):
         continue
     return results
 
+# Search aliases and stems keep Croatian queries useful despite grammatical endings.
+QUERY_ALIASES = {
+    "skladiste": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "skladistar": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "warehouse": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "smjestaj": ["smjest", "accommodation", "housing", "stanovanje"],
+    "dozvola": ["dozvol", "radna dozvol", "work permit", "sponsorship"],
+    "vozac": ["vozac", "vozil", "driver", "dostav", "kamion"],
+    "cistac": ["cist", "cleaner", "housekeeping"],
+    "konobar": ["konobar", "waiter", "servir"],
+    "kuhar": ["kuhar", "cook", "chef", "kuhinj"],
+}
+
+def query_terms(query):
+    words = [norm(x) for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 2]
+    terms = []
+    for word in words:
+        terms.extend(QUERY_ALIASES.get(word, [word]))
+    # Stable unique terms, preserving order.
+    return list(dict.fromkeys(terms))
+
+def relevant_to_query(job, query):
+    words = [norm(x) for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 2]
+    # Very broad queries should not make the list empty; specific searches must match.
+    specific = [w for w in words if w not in {"posao", "radnik", "hrvatska", "croatia", "smjestaj", "dozvola"}]
+    if not specific:
+        return True
+    title = norm(job.get("title", ""))
+    body = norm(job.get("evidence", ""))
+    terms = query_terms(" ".join(specific))
+    # A title match is strongest; a description match is accepted when the job title
+    # uses a related title but the detailed duties mention the searched work.
+    if any(term in title for term in terms):
+        return True
+    return any(term in body for term in terms)
+
 def search_all(query="skladistar radnik smjestaj dozvola"):
-    keywords = [x.lower() for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 2]
+    keywords = query_terms(query)
     jobs = []
     for source in SOURCES:
         try:
@@ -323,9 +359,13 @@ def search_all(query="skladistar radnik smjestaj dozvola"):
     seen, deduped = set(), []
     for job in jobs:
         key = job["url"]
-        if key not in seen:
-            seen.add(key)
-            deduped.append(job)
+        if key in seen or not relevant_to_query(job, query):
+            continue
+        seen.add(key)
+        deduped.append(job)
+    # Put exact title matches before description-only matches.
+    terms = query_terms(query)
+    deduped.sort(key=lambda j: (not any(t in norm(j.get("title", "")) for t in terms)))
     return deduped[:80]
 
 class Handler(BaseHTTPRequestHandler):
