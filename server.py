@@ -141,7 +141,8 @@ PERMIT_TERMS = [
     "help with work permit", "full visa and work-permit processing handled for you",
     "we handle all legal paperwork", "we prepare your employment contract, work permit",
     "documents and permits", "work permit processing", "visa and work permit",
-    "radna dozvola", "dozvola za rad"
+    "valid passport for visa processing", "passport for visa processing",
+    "visa processing", "visa process", "radna dozvola", "dozvola za rad"
 ]
 JOB_TERMS = [
     "posao", "radnik", "radnica", "djelatnik", "skladis", "skladist",
@@ -184,7 +185,11 @@ PERMIT_HANDLING_TERMS = [
 ]
 
 def permit_status(title, body):
-    combined = norm(title + " " + body)
+    # Classify from the same excerpt returned to the user. This prevents text
+    # deep in a page (often a shared footer or another vacancy) from implying
+    # that this particular employer handles the permit.
+    excerpt = clean(body)[:1200]
+    combined = norm(title + " " + excerpt)
     if has_any(combined, PERMIT_HANDLING_TERMS):
         return "El anuncio indica que gestiona visa/permiso; confirmar elegibilidad para ciudadanos colombianos"
     if has_any(combined, PERMIT_TERMS):
@@ -239,7 +244,7 @@ def make_job(source, url, title, body):
         "city": "Croacia (ubicaciÃ³n por verificar)",
         "salary": ("â¬" + str(min_salary) + "+" if min_salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": permit_status(title, body),
+        "permit": permit_status(title, body[:1200]),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
         "note": "Verifica directamente con el empleador que el alojamiento sea gratuito y que pueda gestionar el permiso de trabajo para tu caso.",
@@ -346,7 +351,7 @@ def jobposting_to_result(src_name, url, item):
         "city": location,
         "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": permit_status(title, body),
+        "permit": permit_status(title, body[:1200]),
         "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
         "note": "Datos extraÃ­dos del anuncio. La menciÃ³n de visa/permiso no garantiza elegibilidad para ciudadanos colombianos; confirma con el empleador.",
@@ -448,7 +453,7 @@ def search_source(src, keywords):
             "company": "Por confirmar", "city": "Croacia (ubicaciÃ³n por verificar)",
             "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
             "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-            "permit": permit_status(title, body),
+            "permit": permit_status(title, body[:1200]),
             "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
             "status": "yellow",
             "note": "Datos extraÃ­dos del anuncio. Confirma con el empleador si el alojamiento es gratuito y si tramita permiso para ciudadanos colombianos.",
@@ -516,6 +521,11 @@ def search_all(query="skladistar radnik smjestaj dozvola"):
     seen, deduped = set(), []
     for job in jobs:
         key = job["url"]
+        # Final gate applies to structured-data and fallback results alike.
+        # This prevents source landing pages such as "Open Positions in Croatia"
+        # from leaking through one extraction path.
+        if is_generic_listing_result(key, job.get("title", ""), job.get("evidence", "")):
+            continue
         if key in seen or not relevant_to_query(job, query):
             continue
         seen.add(key)
