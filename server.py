@@ -8,15 +8,11 @@ PORT = int(os.environ.get("PORT", "8765"))
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
 
 # Use search/listing pages rather than only the homepages.
+# Start with two sources whose pages explicitly describe accommodation/document support.
+# HZZ and other portals can be added after these two work reliably.
 SOURCES = [
-    {"name": "Adorio", "url": "https://www.adorio.hr/poslovi.php"},
-    {"name": "PickJobs", "url": "https://pick.jobs/hr"},
-    {"name": "Jooble Hrvatska", "url": "https://hr.jooble.org/posao/" + quote_plus("skladistar")},
-    {"name": "Moj Posao", "url": "https://www.moj-posao.net/Pretraga-Poslova/"},
-    {"name": "Bika", "url": "https://www.bika.net/poslovi"},
-    {"name": "Freelance.hr", "url": "https://www.freelance.hr/hr"},
-    {"name": "Oglasnik", "url": "https://www.oglasnik.hr/posao"},
-    {"name": "Posao.hr", "url": "https://www.posao.hr/"},
+    {"name": "Humble Hunters", "url": "https://humble-hunters.hr/en/jobs"},
+    {"name": "Gettalent", "url": "https://get-talent.hr/career"},
 ]
 
 JOB_PATH_HINTS = (
@@ -238,6 +234,34 @@ def extract_jobpostings(raw_html):
         walk_jobposting(data, found)
     return found
 
+def is_generic_listing_result(url, title, body):
+    """Reject search/category pages masquerading as individual job ads."""
+    title_n = norm(title)
+    url_n = norm(url)
+    body_n = norm(body)
+    generic_phrases = (
+        "search through", "find your ideal job", "for jobseekers",
+        "job seekers", "search results", "results for", "browse jobs",
+        "all jobs", "active ads to find", "homepage", "job search",
+        "traÅ¾ilica poslova", "rezultati pretrage", "oglasi za posao",
+    )
+    if any(norm(phrase) in title_n for phrase in generic_phrases):
+        return True
+    # Known listing/category paths that often return many ads, not one vacancy.
+    path = urlparse(url).path.lower().rstrip("/")
+    if "posao.hr" in urlparse(url).netloc.lower():
+        if path in ("/", "/zanimanja/radnik", "/zanimanja/skladistar", "/zanima/radnik"):
+            return True
+        if title_n.startswith("for jobseekers") or "search through" in title_n:
+            return True
+    # Listing pages often contain many separate vacancy snippets in one body.
+    listing_signals = sum(body_n.count(term) for term in (
+        "expires in", "salary disclosed", "search through", "job view", "homepage"
+    ))
+    if listing_signals >= 3:
+        return True
+    return False
+
 def jobposting_to_result(src_name, url, item):
     title = clean(str(item.get("title") or ""))
     description = item.get("description") or ""
@@ -247,6 +271,8 @@ def jobposting_to_result(src_name, url, item):
     description = re.sub(r"<[^>]+>", " ", description)
     body = clean(html_lib.unescape(description))
     if not title or len(body.split()) < 12:
+        return None
+    if not has_any(title, JOB_TERMS):
         return None
     company_data = item.get("hiringOrganization") or {}
     company = company_data.get("name", "Por confirmar") if isinstance(company_data, dict) else "Por confirmar"
@@ -275,34 +301,6 @@ def jobposting_to_result(src_name, url, item):
         "note": "Datos extraÃ­dos del bloque estructurado de la oferta. Confirma directamente con el empleador alojamiento y permiso de trabajo.",
         "evidence": body[:1200],
     }
-
-def is_generic_listing_result(url, title, body):
-    title_n = norm(title)
-    body_n = norm(body)
-    url_n = url.lower()
-
-    generic_phrases = (
-        "search through", "find your ideal job",
-        "for jobseekers", "search results",
-        "browse jobs", "active ads to find",
-        "job search", "results for"
-    )
-
-    if any(phrase in title_n for phrase in generic_phrases):
-        return True
-
-    if "posao.hr" in url_n:
-        path = urlparse(url).path.lower().rstrip("/")
-        if path in ("", "/", "/zanimanja/radnik",
-                    "/zanimanja/skladistar"):
-            return True
-
-    listing_signals = sum(
-        body_n.count(term)
-        for term in ("expires in", "salary disclosed",
-                     "search through", "job view")
-    )
-    return listing_signals >= 3
 
 def search_source(src, keywords):
     html_text, final_url = fetch(src["url"])
@@ -351,7 +349,7 @@ def search_source(src, keywords):
         if structured:
             for item in structured:
                 result = jobposting_to_result(src["name"], resolved_url, item)
-                if result:
+                if result and not is_generic_listing_result(result["url"], result["title"], result["evidence"]):
                     result_urls.add(resolved_url)
                     results.append(result)
                     if len(results) >= 12:
@@ -373,7 +371,7 @@ def search_source(src, keywords):
             continue
         if is_generic_listing_result(resolved_url, title, body):
             continue
-        if not has_any(title, JOB_TERMS):
+        if not is_specific_job(resolved_url, title, body):
             continue
         if not relevant_to_query({"title": title, "evidence": body}, " ".join(keywords)):
             continue
