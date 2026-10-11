@@ -473,9 +473,29 @@ def search_all(query="skladistar radnik smjestaj dozvola"):
             continue
         seen.add(key)
         deduped.append(job)
-    # Put exact title matches before description-only matches.
+    # Rank the most useful offers first without hiding unconfirmed opportunities.
+    # Explicit free accommodation and work-permit support receive highest priority.
     terms = query_terms(query)
-    deduped.sort(key=lambda j: (not any(t in norm(j.get("title", "")) for t in terms)))
+    def rank(job):
+        title = norm(job.get("title", ""))
+        title_match = any(t in title for t in terms)
+        accommodation = norm(job.get("accommodation", ""))
+        permit = norm(job.get("permit", ""))
+        free_confirmed = "gratis indicado" in accommodation or "besplatan" in accommodation
+        permit_confirmed = any(x in permit for x in ("tramiti dozvolu", "sponsorship confirmed", "confirmed work permit"))
+        # A visa/permit mention is useful but is not proof of eligibility for Colombians.
+        permit_mentioned = "mencionado" in permit or "visa" in permit or "permit" in permit
+        return (not (free_confirmed and permit_confirmed), not free_confirmed,
+                not permit_confirmed, not permit_mentioned, not title_match)
+    deduped.sort(key=rank)
+    for job in deduped:
+        accommodation = norm(job.get("accommodation", ""))
+        permit = norm(job.get("permit", ""))
+        job["priority"] = ("Alta" if ("gratis indicado" in accommodation and
+                           ("mencionado" in permit or "visa" in permit or "permit" in permit))
+                           else "Media" if ("gratis indicado" in accommodation or
+                                             "mencionado" in permit or "visa" in permit or "permit" in permit)
+                           else "Por verificar")
     return deduped[:80]
 
 class Handler(BaseHTTPRequestHandler):
