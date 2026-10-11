@@ -322,10 +322,10 @@ def search_source(src, keywords):
     # vacancy pages, then still discover any additional links from the page.
     if "get-talent.hr" in domain:
         for path, label in (
-            ("/career/warehouse-operative", "Warehouse Operative"),
-            ("/career/cable-production-operator", "Cable Production Operator"),
-            ("/career/production-line-employee", "Production Line Employee"),
-            ("/career/concrete-formwork-worker", "Concrete & Formwork Worker"),
+            ("/hr/career/warehouse-operative", "Warehouse Operative"),
+            ("/hr/career/cable-production-operator", "Cable Production Operator"),
+            ("/hr/career/production-line-employee", "Production Line Employee"),
+            ("/hr/career/concrete-formwork-worker", "Concrete & Formwork Worker"),
         ):
             u = urljoin(final_url, path)
             candidates.append((u, label))
