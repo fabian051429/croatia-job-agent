@@ -136,7 +136,10 @@ PERMIT_TERMS = [
     "pomazemo pri ishodjenju radne dozvole", "sponzoriramo radnu dozvolu",
     "sponzorstvo radne dozvole", "work permit sponsorship",
     "visa sponsorship", "we sponsor work permits", "assistance with work permit",
-    "help with work permit"
+    "help with work permit", "full visa and work-permit processing handled for you",
+    "we handle all legal paperwork", "we prepare your employment contract, work permit",
+    "documents and permits", "work permit processing", "visa and work permit",
+    "radna dozvola", "dozvola za rad"
 ]
 JOB_TERMS = [
     "posao", "radnik", "radnica", "skladist", "konobar", "kuhar",
@@ -200,8 +203,8 @@ def make_job(source, url, title, body):
         "city": "Croacia (ubicaciÃ³n por verificar)",
         "salary": ("â¬" + str(min_salary) + "+" if min_salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
-        "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+        "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+        "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
         "note": "Verifica directamente con el empleador que el alojamiento sea gratuito y que pueda gestionar el permiso de trabajo para tu caso.",
         "evidence": body[:1200],
@@ -295,10 +298,10 @@ def jobposting_to_result(src_name, url, item):
         "city": location,
         "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
         "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-        "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
-        "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+        "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+        "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
         "status": "yellow",
-        "note": "Datos extraÃ­dos del bloque estructurado de la oferta. Confirma directamente con el empleador alojamiento y permiso de trabajo.",
+        "note": "Datos extraÃ­dos del anuncio. La menciÃ³n de visa/permiso no garantiza elegibilidad para ciudadanos colombianos; confirma con el empleador.",
         "evidence": body[:1200],
     }
 
@@ -383,10 +386,10 @@ def search_source(src, keywords):
             "company": "Por confirmar", "city": "Croacia (ubicaciÃ³n por verificar)",
             "salary": ("â¬" + str(salary) + "+" if salary else "No indicada"),
             "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
-            "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
-            "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+            "permit": "TrÃ¡mite de visa/permiso mencionado en el anuncio; confirmar elegibilidad" if permit else "No confirmado en el anuncio",
+            "foreigner": "Confirmar con el empleador si tramita permiso para ciudadanos colombianos",
             "status": "yellow",
-            "note": "DescripciÃ³n extraÃ­da del contenido principal de la oferta. Confirma alojamiento y permiso con el empleador.",
+            "note": "Datos extraÃ­dos del anuncio. Confirma con el empleador si el alojamiento es gratuito y si tramita permiso para ciudadanos colombianos.",
             "evidence": body[:1200],
         }
         result_urls.add(resolved_url)
