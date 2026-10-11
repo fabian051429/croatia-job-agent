@@ -1,30 +1,50 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, urljoin
+from urllib.parse import urlparse, parse_qs, urljoin, quote_plus
 from html.parser import HTMLParser
-import json, re, ssl, urllib.request, os
+import json, re, ssl, urllib.request, os, html as html_lib
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "8765"))
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
 
+# Use search/listing pages rather than only the homepages.
 SOURCES = [
     {"name": "Adorio", "url": "https://www.adorio.hr/poslovi.php"},
     {"name": "PickJobs", "url": "https://pick.jobs/hr"},
-    {"name": "Jooble Hrvatska", "url": "https://hr.jooble.org/"},
-    {"name": "Moj Posao", "url": "https://www.moj-posao.net/"},
+    {"name": "Jooble Hrvatska", "url": "https://hr.jooble.org/posao/" + quote_plus("skladistar")},
+    {"name": "Moj Posao", "url": "https://www.moj-posao.net/Pretraga-Poslova/"},
     {"name": "Bika", "url": "https://www.bika.net/poslovi"},
     {"name": "Freelance.hr", "url": "https://www.freelance.hr/hr"},
     {"name": "Oglasnik", "url": "https://www.oglasnik.hr/posao"},
     {"name": "Posao.hr", "url": "https://www.posao.hr/"},
 ]
 
+JOB_PATH_HINTS = (
+    "/posao", "/poslovi", "/job", "/jobs", "/oglas", "/oglasi",
+    "/vacancy", "/career", "/radno-mjesto", "/radna-mjesta", "/jdp/"
+)
+LISTING_PATH_HINTS = ("/category/", "/kategorija/", "/poslovi", "/oglasi-za-posao")
+GENERIC_TITLES = {
+    "poslovi", "posao", "jobs", "job search", "traÅ¾ilica poslova",
+    "rezultati pretrage", "poÄetna", "home", "career", "karijera",
+    "oglasi za posao", "pronaÄi posao", "pronadi posao"
+}
+
+# Text matching is accent-insensitive so Croatian diacritics/encoding variants
+# don't cause otherwise relevant pages to be discarded.
+def norm(s):
+    s = html_lib.unescape(s or "").lower()
+    replacements = {"Ä":"c", "Ä":"c", "Ä":"d", "Å¡":"s", "Å¾":"z",
+                    "Ã¦":"c", "Ã¨":"c", "Ã°":"d", "Å":"s", "Â¾":"z"}
+    for a, b in replacements.items():
+        s = s.replace(a, b)
+    return re.sub(r"\s+", " ", s).strip()
+
 class Parser(HTMLParser):
     def __init__(self, base):
-        super().__init__()
+        super().__init__(convert_charrefs=True)
         self.base = base
-        self.links = []
-        self.text = []
-        self.title = []
+        self.links, self.text, self.title = [], [], []
         self.in_title = False
         self.current_link = None
         self.link_text = []
@@ -43,8 +63,7 @@ class Parser(HTMLParser):
         if tag == "a" and self.current_link:
             label = clean(" ".join(self.link_text))
             self.links.append((self.current_link, label))
-            self.current_link = None
-            self.link_text = []
+            self.current_link, self.link_text = None, []
 
     def handle_data(self, data):
         t = clean(data)
@@ -57,61 +76,49 @@ class Parser(HTMLParser):
             self.link_text.append(t)
 
 def clean(s):
-    return re.sub(r"\s+", " ", s or "").strip()
+    return re.sub(r"\s+", " ", html_lib.unescape(s or "")).strip()
 
-def fetch(url, timeout=6):
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": UA, "Accept-Language": "hr-HR,hr;q=0.9,en;q=0.7"}
-    )
+def fetch(url, timeout=8):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA,
+        "Accept-Language": "hr-HR,hr;q=0.9,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    })
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
-            data = r.read(500000)
+            data = r.read(900000)
             enc = r.headers.get_content_charset() or "utf-8"
             return data.decode(enc, errors="replace"), r.geturl()
     except Exception:
         return "", url
 
-# These terms must explicitly establish BOTH free accommodation and support
-# with the work/residence permit. A generic mention of accommodation or
-# foreign workers is not sufficient.
 FREE_TERMS = [
-    "besplatan smjeÅ¡taj", "besplatan smjestaj",
-    "besplatni smjeÅ¡taj", "besplatni smjestaj",
-    "smjeÅ¡taj je besplatan", "smjestaj je besplatan",
-    "smjeÅ¡taj bez naknade", "smjestaj bez naknade",
-    "troÅ¡ak smjeÅ¡taja snosi poslodavac", "trosak smjestaja snosi poslodavac",
-    "poslodavac osigurava besplatan smjeÅ¡taj",
-    "poslodavac osigurava besplatan smjestaj",
-    "free accommodation", "accommodation provided free",
-    "free housing provided",
+    "besplatan smjestaj", "besplatni smjestaj", "smjestaj je besplatan",
+    "smjestaj bez naknade", "trosak smjestaja snosi poslodavac",
+    "poslodavac osigurava besplatan smjestaj", "free accommodation",
+    "accommodation provided free", "free housing provided",
+    "osiguran besplatan smjestaj", "besplatan smjeÅ¡taj"
 ]
 PERMIT_TERMS = [
     "poslodavac ishoduje dozvolu", "poslodavac osigurava dozvolu",
-    "pomoÄ pri ishoÄenju dozvole", "pomoc pri ishodjenju dozvole",
-    "pomoÄ oko radne dozvole", "pomoc oko radne dozvole",
-    "pomaÅ¾emo pri ishoÄenju radne dozvole", "pomazemo pri ishodjenju radne dozvole",
-    "sponzoriramo radnu dozvolu", "sponzorstvo radne dozvole",
-    "work permit sponsorship", "visa sponsorship", "we sponsor work permits",
-    "assistance with work permit", "help with work permit",
+    "pomoc pri ishodjenju dozvole", "pomoc oko radne dozvole",
+    "pomazemo pri ishodjenju radne dozvole", "sponzoriramo radnu dozvolu",
+    "sponzorstvo radne dozvole", "work permit sponsorship",
+    "visa sponsorship", "we sponsor work permits", "assistance with work permit",
+    "help with work permit", "dozvola za boravak i rad"
 ]
 JOB_TERMS = [
-    "posao", "radnik", "radnica", "skladiÅ¡t", "skladist", "konobar",
-    "kuhar", "kuharica", "ÄistaÄ", "cistac", "worker", "waiter",
-    "cook", "warehouse", "cleaner", "job", "zapoÅ¡lj", "zaposlj",
-]
-GENERIC_TITLES = [
-    "poslovi", "posao", "jobs", "job search", "traÅ¾ilica poslova",
-    "trazilica poslova", "rezultati pretrage", "poÄetna", "pocetna",
-    "home", "career", "karijera", "oglasi za posao",
+    "posao", "radnik", "radnica", "skladist", "konobar", "kuhar",
+    "kuharica", "cistac", "worker", "waiter", "cook", "warehouse",
+    "cleaner", "job", "zaposlj", "vozac", "prodavac", "hotel", "sobar"
 ]
 
 def has_any(text, terms):
-    t = (text or "").lower()
-    return any(term in t for term in terms)
+    t = norm(text)
+    return any(norm(term) in t for term in terms)
 
 def classify(title, body):
-    combined = (title + " " + body).lower()
+    combined = norm(title + " " + body)
     free = has_any(combined, FREE_TERMS)
     permit = has_any(combined, PERMIT_TERMS)
     salary = re.search(r"(?:â¬|eur|eura)\s?([0-9][0-9 .]{2,5})(?:[-â]\s?([0-9][0-9 .]{2,5}))?", combined)
@@ -123,28 +130,28 @@ def classify(title, body):
                     nums.append(int(re.sub(r"[^0-9]", "", group)))
                 except ValueError:
                     pass
-    min_salary = min(nums) if nums else None
-    return free, permit, min_salary
+    return free, permit, min(nums) if nums else None
+
+def is_listing_url(url):
+    path = urlparse(url).path.lower().rstrip("/")
+    return any(hint in path for hint in LISTING_PATH_HINTS)
 
 def is_specific_job(url, title, body):
     parsed = urlparse(url)
     path = parsed.path.strip("/")
-    title_low = clean(title).lower()
-    body_low = body.lower()
-
-    if not path or title_low in GENERIC_TITLES:
+    title_n = norm(title)
+    body_n = norm(body)
+    if not path or title_n in {norm(x) for x in GENERIC_TITLES}:
         return False
-    if any(x in path.lower() for x in ["/poslovi", "/oglasi-za-posao", "/category/", "/kategorija/"]):
-        # Allow only if it looks like an individual advert URL, not a listing page.
+    if is_listing_url(url):
         parts = [p for p in path.split("/") if p]
         if len(parts) < 2:
             return False
-    if not has_any(title_low, JOB_TERMS):
-        # Some sites use a company/job title that doesn't include a known role;
-        # require an advert-like URL and enough job-specific text instead.
-        if len(path.split("/")) < 2 or not has_any(body_low, JOB_TERMS):
+    if not has_any(title_n, JOB_TERMS):
+        if len(path.split("/")) < 2 or not has_any(body_n, JOB_TERMS):
             return False
-    if len(body.split()) < 35:
+    # Avoid accepting menus/homepages, but don't require an overly long description.
+    if len(body_n.split()) < 22:
         return False
     return True
 
@@ -157,43 +164,46 @@ def make_job(source, url, title, body):
         "company": "Por confirmar",
         "city": "Croacia (ubicaciÃ³n por verificar)",
         "salary": ("â¬" + str(min_salary) + "+" if min_salary else "No indicada"),
-        "accommodation": "Gratis confirmado en el anuncio",
-        "permit": "Ayuda con permiso indicada en el anuncio",
-        "foreigner": "Revisar condiciones para ciudadano colombiano con el empleador",
-        "status": "green" if min_salary is not None and min_salary >= 1200 else "yellow",
-        "note": "El anuncio contiene indicaciones explÃ­citas de alojamiento gratuito y ayuda con permiso. Confirma directamente con el empleador que aplica a tu nacionalidad y situaciÃ³n.",
+        "accommodation": "Gratis indicado en el anuncio" if free else "No confirmado",
+        "permit": "Ayuda indicada en el anuncio" if permit else "No confirmada",
+        "foreigner": "Confirmar con el empleador si acepta ciudadanos colombianos",
+        "status": "yellow",
+        "note": "Verifica directamente con el empleador que el alojamiento sea gratuito y que pueda gestionar el permiso de trabajo para tu caso.",
         "evidence": body[:1200],
     }
 
 def search_source(src, keywords):
-    html, final_url = fetch(src["url"])
-    if not html:
+    html_text, final_url = fetch(src["url"])
+    if not html_text:
         return []
     parser = Parser(final_url)
     try:
-        parser.feed(html)
+        parser.feed(html_text)
     except Exception:
         return []
 
-    domain = urlparse(final_url).netloc
-    candidates = []
-    seen = set()
+    domain = urlparse(final_url).netloc.lower()
+    candidates, seen = [], set()
+    # Include links to individual job pages and links with job-like labels.
     for href, label in parser.links:
         u = href.split("#")[0]
-        parsed = urlparse(u)
-        if parsed.scheme not in ("http", "https") or parsed.netloc != domain:
+        p = urlparse(u)
+        if p.scheme not in ("http", "https") or p.netloc.lower() != domain:
             continue
-        if u in seen:
+        if u in seen or not p.path.strip("/"):
             continue
         seen.add(u)
-        low_path = parsed.path.lower()
-        # Crawl likely job/search paths only. Never treat the source homepage itself as a job.
-        if any(x in low_path for x in ["/posao", "/poslovi", "/job", "/jobs", "/oglas", "/oglasi", "/vacancy", "/career"]):
+        label_n = norm(label)
+        if any(h in p.path.lower() for h in JOB_PATH_HINTS) or has_any(label_n, JOB_TERMS):
+            # Skip obvious listing/category pages when they have no extra path depth.
+            if is_listing_url(u) and len([x for x in p.path.split("/") if x]) < 2:
+                continue
             candidates.append((u, label))
 
-    results = []
-    for url, link_label in candidates[:12]:
-        page, resolved_url = fetch(url, timeout=6)
+    results, result_urls = [], set()
+    # Visit more individual links; do not stop at the first 5 pages.
+    for url, link_label in candidates[:35]:
+        page, resolved_url = fetch(url, timeout=7)
         if not page:
             continue
         pp = Parser(resolved_url)
@@ -203,38 +213,34 @@ def search_source(src, keywords):
             continue
         body = clean(" ".join(pp.text))
         title = clean(" ".join(pp.title)) or link_label
-        if not title or not body:
-            continue
-        if not is_specific_job(resolved_url, title, body):
+        if not title or not body or not is_specific_job(resolved_url, title, body):
             continue
         free, permit, _ = classify(title, body)
-        # Strict gate: no generic agency pages, and no jobs unless BOTH required
-        # conditions are explicitly stated in the page text.
-        if not (free and permit):
+        # Show real vacancies even if the conditions aren't explicitly stated;
+        # the UI labels them as unconfirmed rather than claiming they are met.
+        if resolved_url in result_urls:
             continue
+        result_urls.add(resolved_url)
         results.append(make_job(src["name"], resolved_url, title, body))
-        if len(results) >= 5:
+        if len(results) >= 12:
             break
     return results
 
-def search_all(query="skladiÅ¡tar radnik smjeÅ¡taj dozvola"):
-    # Keep the user's query terms, but the mandatory conditions are enforced
-    # independently by classify(), not by loose keyword matching.
-    keywords = [x.lower() for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 3]
+def search_all(query="skladistar radnik smjestaj dozvola"):
+    keywords = [x.lower() for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 2]
     jobs = []
     for source in SOURCES:
         try:
             jobs.extend(search_source(source, keywords))
         except Exception:
             continue
-    seen = set()
-    deduped = []
+    seen, deduped = set(), []
     for job in jobs:
         key = job["url"]
         if key not in seen:
             seen.add(key)
             deduped.append(job)
-    return deduped[:40]
+    return deduped[:80]
 
 class Handler(BaseHTTPRequestHandler):
     def send_json(self, obj, code=200):
@@ -263,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/sources":
             return self.send_json({"sources": SOURCES})
         if parsed.path == "/api/search":
-            query = parse_qs(parsed.query).get("q", ["skladiÅ¡tar radnik smjeÅ¡taj dozvola"])[0]
+            query = parse_qs(parsed.query).get("q", ["skladistar radnik smjestaj dozvola"])[0]
             return self.send_json({"query": query, "jobs": search_all(query)})
         if parsed.path in ("/", "/index.html"):
             try:
@@ -286,6 +292,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
         except Exception:
