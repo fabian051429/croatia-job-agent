@@ -314,9 +314,9 @@ def search_source(src, keywords):
 
 # Search aliases and stems keep Croatian queries useful despite grammatical endings.
 QUERY_ALIASES = {
-    "skladiste": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "skladistar": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
-    "warehouse": ["sklad", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "skladiste": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "skladistar": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
+    "warehouse": ["skladist", "komision", "vilicar", "logistik", "magacin", "warehouse", "picker", "pakir"],
     "smjestaj": ["smjest", "accommodation", "housing", "stanovanje"],
     "dozvola": ["dozvol", "radna dozvol", "work permit", "sponsorship"],
     "vozac": ["vozac", "vozil", "driver", "dostav", "kamion"],
@@ -335,18 +335,27 @@ def query_terms(query):
 
 def relevant_to_query(job, query):
     words = [norm(x) for x in re.findall(r"[\wÄÄÄÅ¡Å¾ÄÄÄÅ Å½]+", query) if len(x) > 2]
-    # Very broad queries should not make the list empty; specific searches must match.
+    # Broad queries should not make the list empty; specific searches must match.
     specific = [w for w in words if w not in {"posao", "radnik", "hrvatska", "croatia", "smjestaj", "dozvola"}]
     if not specific:
         return True
     title = norm(job.get("title", ""))
     body = norm(job.get("evidence", ""))
     terms = query_terms(" ".join(specific))
-    # A title match is strongest; a description match is accepted when the job title
-    # uses a related title but the detailed duties mention the searched work.
-    if any(term in title for term in terms):
+
+    # Match word beginnings, not arbitrary substrings. This avoids false positives
+    # such as "sklad" matching the Croatian word "skladu" ("in accordance").
+    def has_term(text, term):
+        term = norm(term)
+        if not term:
+            return False
+        return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"[a-z0-9]*", text) is not None
+
+    # A role name in the title is the strongest signal. Description matches are
+    # accepted only for concrete warehouse/logistics terms from the search aliases.
+    if any(has_term(title, term) for term in terms):
         return True
-    return any(term in body for term in terms)
+    return any(has_term(body, term) for term in terms)
 
 def search_all(query="skladistar radnik smjestaj dozvola"):
     keywords = query_terms(query)
